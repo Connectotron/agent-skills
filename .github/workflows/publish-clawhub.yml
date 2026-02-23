@@ -1,0 +1,100 @@
+name: Publish to ClawHub
+
+on:
+  push:
+    tags:
+      - '*-v*.*.*'  # Pattern: skill-name-v1.0.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub
+      
+      - name: Parse tag
+        id: parse_tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          SKILL_NAME="${TAG%-v*}"
+          VERSION="${TAG##*-v}"
+          echo "skill=$SKILL_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG"
+          echo "Skill: $SKILL_NAME"
+          echo "Version: $VERSION"
+      
+      - name: Validate skill exists
+        run: |
+          if [ ! -d "skills/${{ steps.parse_tag.outputs.skill }}" ]; then
+            echo "❌ Skill not found: ${{ steps.parse_tag.outputs.skill }}"
+            exit 1
+          fi
+          echo "✅ Skill directory found"
+      
+      - name: Validate SKILL.md exists
+        run: |
+          if [ ! -f "skills/${{ steps.parse_tag.outputs.skill }}/SKILL.md" ]; then
+            echo "❌ SKILL.md not found in skills/${{ steps.parse_tag.outputs.skill }}/"
+            exit 1
+          fi
+          echo "✅ SKILL.md found"
+      
+      - name: Publish to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          cd "skills/${{ steps.parse_tag.outputs.skill }}"
+          
+          # Configure ClawHub with token
+          if [ -n "$CLAWHUB_TOKEN" ]; then
+            echo "Configuring ClawHub authentication..."
+            mkdir -p ~/.config/clawhub
+            echo "{\"token\":\"$CLAWHUB_TOKEN\"}" > ~/.config/clawhub/config.json
+          else
+            echo "⚠️  Warning: CLAWHUB_TOKEN not set. Publishing may fail."
+          fi
+          
+          echo "Publishing ${{ steps.parse_tag.outputs.skill }} v${{ steps.parse_tag.outputs.version }} to ClawHub..."
+          
+          clawhub publish . \
+            --slug "${{ steps.parse_tag.outputs.skill }}" \
+            --version "${{ steps.parse_tag.outputs.version }}" \
+            --changelog "Release v${{ steps.parse_tag.outputs.version }}" || {
+            echo "❌ ClawHub publish failed"
+            exit 1
+          }
+          
+          echo "✅ Successfully published to ClawHub"
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "${{ steps.parse_tag.outputs.skill }} v${{ steps.parse_tag.outputs.version }}"
+          body: |
+            ## ${{ steps.parse_tag.outputs.skill }} v${{ steps.parse_tag.outputs.version }}
+            
+            Published to ClawHub! Install with:
+            
+            ```bash
+            clawhub install ${{ steps.parse_tag.outputs.skill }}
+            ```
+            
+            Or via npx:
+            
+            ```bash
+            npx skills add Connectotron/agent-skills --skill ${{ steps.parse_tag.outputs.skill }}
+            ```
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
