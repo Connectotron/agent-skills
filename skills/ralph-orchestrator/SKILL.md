@@ -218,17 +218,47 @@ cli:
   # backend: "claude"    # $0.12-0.18 per iteration (highest quality)
 ```
 
-**Strategy:** Use cheaper models for iteration, expensive models for final validation.
+**Strategy:** Use cheaper models for iteration, expensive models for final validation or when stuck.
 
-**Example workflow:**
+**Standard workflow:**
 ```bash
 # Iterate with Kiro (cheap, fast)
-ralph run --config ralph.yml  # Uses kiro
+ralph run --config ralph.yml --max-iterations 15
 
 # Final validation with Claude (expensive, thorough)
 sed -i 's/kiro/claude/' ralph.yml
 ralph run --max-iterations 5  # Only final validation passes
 ```
+
+**Escalation strategy (when stuck):**
+
+If Kiro fails to converge after 10-15 iterations (validation keeps rejecting):
+
+```bash
+# Stop the loop (Ctrl+C if running)
+# Check iteration count in TUI or logs
+
+# If stuck after 10-15 iterations, escalate to Claude
+sed -i 's/kiro/claude/' ralph.yml
+ralph run --max-iterations 10  # Claude breaks through
+
+# Resume with Kiro after breakthrough
+sed -i 's/claude/kiro/' ralph.yml
+ralph run --max-iterations 15
+```
+
+**When to escalate:**
+- Same validation error 3+ times in a row
+- Iteration count >15 with no validation passes
+- Task complexity higher than expected
+- Kiro missing subtle requirements
+
+**Cost impact:**
+- Kiro only: 20 iterations × $0.03 = $0.60 (may not converge)
+- Escalation: 15 Kiro + 5 Claude + 5 Kiro = $0.45 + $0.75 + $0.15 = **$1.35** (converges)
+- Claude only: 15 iterations × $0.15 = $2.25
+
+**Best of both:** Start cheap, escalate when stuck, finish cheap.
 
 ### Iteration Caps (Scope Control)
 

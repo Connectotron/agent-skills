@@ -66,14 +66,69 @@ ralph run --max-iterations 5
 # Total: $0.75 (vs. $1.95 all-Claude = 62% savings)
 ```
 
+**Escalation strategy (when Kiro gets stuck):**
+
+If cheap model fails to converge after 10-15 iterations:
+
+```bash
+# Watch for signs of being stuck:
+# - Same validation error 3+ times
+# - No validation passes after 10-15 iterations
+# - Error messages indicate subtle requirement misunderstood
+
+# Step 1: Stop current loop (Ctrl+C)
+
+# Step 2: Escalate to Claude to break through
+sed -i 's/kiro/claude/' ralph.yml
+ralph run --max-iterations 10  # Claude's stronger reasoning breaks through
+# Cost: 5 iterations × $0.15 = $0.75
+
+# Step 3: Resume with Kiro after breakthrough
+sed -i 's/claude/kiro/' ralph.yml
+ralph run --max-iterations 10  # Finish cheaper
+# Cost: 5 iterations × $0.03 = $0.15
+
+# Total with escalation: $0.30 (initial Kiro) + $0.75 (Claude breakthrough) + $0.15 (Kiro finish) = $1.20
+# vs. Kiro stuck indefinitely or all-Claude $2.25
+```
+
+**Escalation decision matrix:**
+
+| Symptom | Action | Cost Impact |
+|---------|--------|-------------|
+| Validation passes, then fails once | Continue with Kiro | No change |
+| Same error 2 times in a row | Continue with Kiro (may be fixing) | No change |
+| Same error 3+ times in a row | **Escalate to Claude** | +$0.60-0.90 |
+| 10 iterations, no validation pass | **Escalate to Claude** | +$0.60-0.90 |
+| 15 iterations, still stuck | **Escalate to Claude immediately** | +$0.60-0.90 |
+| Subtle requirement misunderstood | **Escalate to Claude** | +$0.60-0.90 |
+
+**When escalation is worth it:**
+
+**Scenario 1: Kiro stuck on edge case (typical)**
+- 15 Kiro iterations (stuck): $0.45
+- 5 Claude iterations (breakthrough): $0.75
+- 5 Kiro iterations (finish): $0.15
+- **Total: $1.35** (converges)
+
+vs. all-Kiro indefinitely: $0.60+ (never converges, wasted)
+vs. all-Claude: $2.25 (converges, but expensive)
+
+**Scenario 2: Task well-scoped (no escalation needed)**
+- 12 Kiro iterations: $0.36 (converges)
+- **Total: $0.36** (best case)
+
+**Rule of thumb:** If stuck after 10-15 iterations with same error, escalate immediately. Continuing with Kiro wastes money without progress.
+
 **When to use which model:**
 
 | Stage | Model | Why |
 |-------|-------|-----|
-| Exploration | Kiro or OpenCode | Fast iteration, acceptable quality for TDD |
-| Implementation | Kiro | 80% savings, good enough for passing tests |
+| Exploration (iterations 1-10) | Kiro or OpenCode | Fast iteration, acceptable quality for TDD |
+| Implementation (converging) | Kiro | 80% savings, good enough for passing tests |
+| **Stuck (3+ same errors)** | **Claude Sonnet** | **Stronger reasoning breaks through** |
 | Final validation | Claude Sonnet | Thorough YAGNI/KISS checks, best E2E verification |
-| Bug fixing | Kiro | Simple logic changes don't need premium model |
+| Bug fixing (simple) | Kiro | Simple logic changes don't need premium model |
 | Refactoring | Claude Sonnet | Subtle behavioral changes need careful review |
 
 ---
@@ -117,6 +172,129 @@ ralph run --tui
 **Early intervention:**
 - If cost/iteration >$0.20 with Kiro: Switch to cheaper model or reduce max_iterations
 - If token/iteration >8,000: Agent loading too much context (scope task narrower)
+
+---
+
+### 5. Smart Model Escalation (Break Through When Stuck)
+
+**Purpose:** Use cheap models by default, escalate to expensive models only when stuck
+
+**Core insight:** Kiro handles 70-80% of tasks well. For the 20-30% where it gets stuck, Claude can break through quickly.
+
+#### Escalation Triggers
+
+**Trigger 1: Repeated validation failures**
+```
+Iteration 8: Validator fails (missing rate limiting)
+Iteration 9: Validator fails (missing rate limiting)
+Iteration 10: Validator fails (missing rate limiting)
+→ ESCALATE: Same error 3 times = Kiro doesn't understand requirement
+```
+
+**Trigger 2: No validation passes after threshold**
+```
+Iterations 1-15: All fail validation
+→ ESCALATE: Kiro struggling with task complexity
+```
+
+**Trigger 3: Subtle requirement misunderstood**
+```
+Validator: "Rate limiting is per-user, not per-IP"
+Kiro iterations keep implementing per-IP despite feedback
+→ ESCALATE: Kiro missing nuance
+```
+
+#### Manual Escalation Workflow
+
+**Step 1: Monitor for stuck signals**
+```bash
+ralph run --tui --max-iterations 20  # TUI shows iteration history
+```
+
+Watch for:
+- Same validation error message appearing repeatedly
+- Iteration count reaching 10-15 without progress
+- Error messages indicating misunderstanding of requirement
+
+**Step 2: Stop and escalate**
+```bash
+# Ctrl+C to stop current loop
+
+# Switch to Claude
+sed -i 's/backend: "kiro"/backend: "claude"/' ralph.yml
+
+# Run limited iterations to break through
+ralph run --max-iterations 10
+```
+
+**Step 3: Resume with Kiro after breakthrough**
+```bash
+# Once validation passes, switch back to Kiro
+sed -i 's/backend: "claude"/backend: "kiro"/' ralph.yml
+
+# Finish remaining work
+ralph run --max-iterations 10
+```
+
+#### Cost Analysis: Escalation vs. Pure Strategies
+
+**Example task:** User authentication with rate limiting (medium complexity)
+
+**Strategy A: Kiro only (gets stuck)**
+- 20+ iterations, never passes validation
+- Cost: $0.60+ (wasted)
+- **Outcome:** FAIL
+
+**Strategy B: Claude only**
+- 12 iterations, passes validation
+- Cost: $1.80
+- **Outcome:** SUCCESS
+
+**Strategy C: Kiro → escalate → Kiro (smart)**
+- 10 Kiro iterations (stuck): $0.30
+- 5 Claude iterations (breakthrough): $0.75
+- 5 Kiro iterations (finish): $0.15
+- **Total: $1.20**
+- **Outcome:** SUCCESS
+- **Savings vs. Claude-only:** $0.60 (33%)
+
+**Strategy D: Kiro → Claude final validation only (ideal, when not stuck)**
+- 12 Kiro iterations (converges): $0.36
+- 3 Claude iterations (final validation): $0.45
+- **Total: $0.81**
+- **Outcome:** SUCCESS
+- **Savings vs. Claude-only:** $0.99 (55%)
+
+#### When NOT to Escalate
+
+**Avoid premature escalation:**
+- Single validation failure (Kiro is still fixing)
+- Two failures in a row (Kiro may be iterating toward solution)
+- Task is simple (verbose flag, single endpoint)
+
+**Wait for clear signals:**
+- Three or more identical failures
+- 10+ iterations with no validation pass
+- Error messages show fundamental misunderstanding
+
+#### Future: Automated Escalation
+
+**If ralph supports config-based escalation (check latest docs):**
+
+```yaml
+# ralph.yml (hypothetical)
+cli:
+  backend: "kiro"
+  escalation:
+    enabled: true
+    trigger_after_failures: 3       # Same error 3 times
+    trigger_after_iterations: 12    # No progress after 12 iterations
+    escalate_to: "claude"
+    escalate_max_iterations: 10
+    resume_backend: "kiro"          # Return to Kiro after breakthrough
+```
+
+**Check ralph documentation for latest escalation features.**
 
 ---
 
