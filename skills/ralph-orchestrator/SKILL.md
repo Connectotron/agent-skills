@@ -342,12 +342,12 @@ Impact: Validator knows exactly what to verify
 
 For tasks >30 iterations, use `pdd-to-code-assist` preset to auto-generate task breakdown.
 
-**Cost impact:**
-- Vague prompt: 15-20 iterations, $2.25-3.00 (Claude) or $0.45-0.60 (Kiro)
-- Specific criteria: 10-12 iterations, $1.50-1.80 (Claude) or $0.30-0.36 (Kiro)
-- **Best ROI:** 5 min planning saves $0.75-1.50 per task
+**Quota impact:**
+- Vague prompt: 15-20 iterations (wastes quota)
+- Specific criteria: 10-12 iterations (30-40% quota savings)
+- **Best ROI:** 5 min planning preserves quota for next tasks
 
-See [references/cost-and-planning.md](references/cost-and-planning.md) for detailed examples.
+See [references/quota-and-planning.md](references/quota-and-planning.md) for detailed examples.
 
 ## Key Features
 
@@ -521,7 +521,7 @@ See [references/examples.md](references/examples.md) for detailed workflow break
 
 **Rule of thumb:** Use secondary agent by default, escalate to primary when stuck or for critical tasks.
 
-See [references/cli-agent-rotation.md](references/cli-agent-rotation.md) for detailed rotation strategies and [references/cost-and-planning.md](references/cost-and-planning.md) for planning best practices.
+See [references/cli-agent-rotation.md](references/cli-agent-rotation.md) for detailed rotation strategies and [references/quota-and-planning.md](references/quota-and-planning.md) for quota management + planning best practices.
 
 ## Advanced Usage
 
