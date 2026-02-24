@@ -1,0 +1,48 @@
+name: Publish to ClawHub
+
+on:
+  push:
+    tags:
+      - '*-v*'  # Matches tags like: skill-evaluator-v1.0.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clawhub CLI
+        run: npm install -g clawhub
+
+      - name: Extract skill info from tag
+        id: skill-info
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Full tag: $TAG"
+          
+          # Extract skill-name and version from tag (e.g., skill-evaluator-v1.0.0)
+          SKILL_NAME="${TAG%-v*}"
+          VERSION="${TAG#*-v}"
+          
+          echo "skill-name=$SKILL_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted: skill=$SKILL_NAME, version=$VERSION"
+
+      - name: Authenticate to ClawHub
+        run: clawhub auth login --no-browser --token "${{ secrets.CLAWHUB_TOKEN }}"
+
+      - name: Publish to ClawHub
+        run: |
+          clawhub publish "skills/${{ steps.skill-info.outputs.skill-name }}" \
+            --slug "${{ steps.skill-info.outputs.skill-name }}" \
+            --version "${{ steps.skill-info.outputs.version }}"
+
+      - name: Verify publication
+        run: clawhub auth whoami
