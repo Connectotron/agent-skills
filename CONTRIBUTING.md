@@ -4,23 +4,29 @@ Thank you for your interest in contributing! This document outlines the process 
 
 ## Development Workflow
 
-We use a **UAT → Main** branching strategy:
+We use a **UAT → Main** branching strategy with **protected branches**:
 
 1. **Development:** Make changes in `uat` branch
 2. **Testing:** Validate skills work correctly
-3. **Merge:** PR from `uat` → `main` when ready for release
-4. **Publish:** Skills are published to ClawHub from `main`
+3. **Pull Request:** Create PR from `uat` → `main` (direct push blocked)
+4. **Review:** PR requires passing validation + approval
+5. **Merge:** Merge PR to trigger release workflow
+6. **Publish:** Skills automatically published to ClawHub
+
+**⚠️ The `main` branch is protected.** All changes must go through pull requests from `uat`.
 
 ---
 
 ## Release Process
 
-We use **automated releases** powered by [release-me](https://github.com/dev-build-deploy/release-me) with integrated ClawHub publishing. Every commit to `main` can trigger a release, depending on commit message format.
+We use **automated releases** powered by [release-me](https://github.com/dev-build-deploy/release-me) with integrated ClawHub publishing.
 
 ### How It Works
 
+**⚠️ Important: The `main` branch is protected.** Direct pushes are blocked. All changes must go through the **UAT → PR → Main** workflow.
+
 ```
-Commit to main → release-me analyzes commits → Creates GitHub Release → Publishes to ClawHub
+UAT branch → Pull Request → Merge to main → Release workflow triggers → GitHub Release + ClawHub publish
 ```
 
 **Automated:**
@@ -28,6 +34,7 @@ Commit to main → release-me analyzes commits → Creates GitHub Release → Pu
 - Changelog auto-generated and categorized
 - GitHub Release created with tag
 - Skill(s) automatically published to ClawHub
+- **Triggers on PR merge to `main`** (not direct pushes)
 
 ---
 
@@ -91,6 +98,8 @@ git commit -m "chore: update dependencies"
 
 #### Workflow
 
+**⚠️ Note:** Main branch is protected. You **cannot** push directly to `main`. All changes must go through pull requests from `uat`.
+
 ```bash
 # 1. Make changes in uat branch
 git checkout uat
@@ -98,19 +107,28 @@ git add skills/your-skill/
 git commit -m "feat(your-skill): add new feature"
 git push origin uat
 
-# 2. Create PR: uat → main
+# 2. Create PR: uat → main (REQUIRED - direct push blocked)
 gh pr create --base main --head uat --title "feat(your-skill): add new feature"
 
-# 3. Merge PR (or admin merge)
-gh pr merge <PR#> --squash
+# 3. Get approval and merge PR
+# - PR requires passing validation checks
+# - PR requires 1 approval (or admin override)
+gh pr merge <PR#> --squash --admin
 
-# 4. Automatic release triggers!
+# 4. Release workflow automatically triggers on merge!
+# - release-me analyzes conventional commits
 # - GitHub Release created (e.g., v1.1.0)
 # - Changelog auto-generated
 # - Skill published to ClawHub
 ```
 
 **Result:** GitHub release created, skill published to ClawHub, changelog updated.
+
+**Why this workflow?**
+- Branch protection ensures code review
+- Validation checks prevent broken releases
+- Linear history via squash merges
+- Audit trail for all changes
 
 ---
 
