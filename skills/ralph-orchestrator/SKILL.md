@@ -1,6 +1,6 @@
 ---
 name: ralph-orchestrator
-description: Autonomous programming task execution using ralph-orchestrator's event-driven loop system. Kicks off TDD implementation, bug fixes, feature development, and refactoring with multi-hat coordination, external verification gates (tests/linters/type checks), and automatic iteration until completion. Use when you need iteration-to-perfection on coding tasks: (1) Complex features requiring TDD workflow (RED → GREEN → REFACTOR), (2) Bug fixes needing reproduction and verification, (3) Spec-driven development from PDD output, (4) Refactoring with quality gates, (5) Any task where external verification (tests must pass, linters must pass, build must succeed) is critical. NOT for simple one-liner fixes, exploratory code reading, or tasks requiring human judgment at each step.
+description: Autonomous programming task execution with cost control and quality gates. Kicks off TDD implementation, bug fixes, feature development, and refactoring using event-driven loop system with multi-hat coordination and external verification (tests/linters/type checks). Includes spending limits, model selection (Kiro 83% cheaper than Claude), iteration caps, and real-time cost tracking. Use when you need: (1) Cost-controlled iteration-to-perfection (set spending limits, use cheaper models), (2) Complex features with TDD workflow (RED → GREEN → REFACTOR), (3) Bug fixes with reproduction and verification, (4) Spec-driven development from PDD output, (5) Tasks where external verification gates critical. Best practices: write specific acceptance criteria (reduces iterations), use PDD for complex tasks (better scoping), specify what NOT to build (YAGNI). NOT for simple one-liner fixes, exploratory code reading, or tasks requiring human judgment at each step.
 metadata:
   version: 1.0.0
   author: Connectotron
@@ -44,11 +44,14 @@ ralph --version
 
 ## Quick Start
 
-### Simple Task
+### Simple Task (Cost-Conscious)
 
 ```bash
 cd ~/my-project
 ralph init --preset code-assist
+
+# Edit ralph.yml to use cheaper model
+sed -i 's/backend: "kiro"/backend: "kiro"/' ralph.yml  # Already default
 
 cat > PROMPT.md << 'EOF'
 Add a --verbose flag to the CLI that enables debug logging
@@ -56,36 +59,71 @@ Add a --verbose flag to the CLI that enables debug logging
 Acceptance criteria:
 - -v and --verbose flags both work
 - When enabled, shows detailed output
+- When disabled (default), shows minimal output
 - Tests verify verbose vs. normal mode
+- Manual test: ./cli --verbose command shows debug output
 EOF
 
-ralph run
+ralph run --max-spend 0.50  # Hard cap at $0.50
 ```
 
-**Expected:** 2-3 iterations, ~$0.15-0.30 with Claude Sonnet
+**Expected:** 2-3 iterations, ~$0.03-0.06 with Kiro (vs. $0.15-0.30 with Claude)
 
-### Complex Feature with TDD
+**Cost control applied:**
+- Cheaper model (Kiro)
+- Spending limit ($0.50)
+- Clear acceptance criteria (reduces iterations)
+
+### Complex Feature with TDD (Balanced Cost + Quality)
 
 ```bash
 ralph init --preset code-assist
 
+# Iterate with Kiro (cheap)
 cat > PROMPT.md << 'EOF'
 Implement user authentication:
-- Email/password login endpoint
-- JWT token generation (24-hour expiry)
-- Password hashing with bcrypt
-- Rate limiting: 5 attempts per 15 minutes per IP
+- Email/password login endpoint POST /auth/login
+- JWT token generation (24-hour expiry, HS256 algorithm)
+- Password hashing with bcrypt (12 rounds)
+- Rate limiting: 5 attempts per 15 minutes per IP (in-memory or Redis)
 
-Success criteria:
-- All tests pass
+Success criteria (testable):
+- All unit tests pass
+- Integration tests verify auth flow
 - No TypeScript errors
-- Manual E2E test confirms login flow works
+- ESLint passes
+- Manual E2E test scenarios:
+  1. Valid credentials → Returns JWT with 24-hour expiry
+  2. Invalid credentials → Returns 401
+  3. 5 failed attempts from IP A → 6th attempt returns 429
+  4. Request from IP B succeeds (independent limits)
+
+DO NOT implement:
+- OAuth/SSO (out of scope)
+- Password reset flow (separate task)
+- Email verification (separate task)
 EOF
 
-ralph run --tui --max-iterations 30
+ralph run --tui --max-iterations 30 --max-spend 2.00
 ```
 
-**Expected:** 8-12 iterations, ~$1.20-1.80
+**Expected:** 8-12 iterations, ~$0.20-0.36 with Kiro (vs. $1.20-1.80 with Claude)
+
+**Cost control + planning applied:**
+- Kiro model (80% savings)
+- Spending limit ($2.00)
+- Iteration cap (30)
+- Specific acceptance criteria with E2E scenarios
+- Clear YAGNI guidance (what NOT to build)
+- Manual test scenarios for Validator
+
+**Optional final validation with Claude:**
+```bash
+sed -i 's/kiro/claude/' ralph.yml
+ralph run --max-iterations 5  # Quick quality check
+```
+
+**Total cost:** $0.36 (Kiro) + $0.75 (Claude final) = **$1.11** (vs. $1.80 all-Claude)
 
 ### From PDD Output (Spec-Driven)
 
@@ -154,18 +192,124 @@ Builder uses confidence scoring for decisions:
 
 **Result:** Loop never blocks waiting for human input on implementation decisions.
 
-## Key Features
+## Cost Control Strategies
 
-### Token Tracking & Spending Limits
+Ralph provides multiple levers for controlling costs while maintaining quality.
+
+### Spending Limits (Hard Caps)
 
 ```bash
 ralph run --max-spend 5.00  # Stop if cost exceeds $5
+ralph run --max-spend 10.00 --max-iterations 50  # Combined limits
 ```
 
-TUI shows real-time:
+**When to use:**
+- Experimentation (unknown task complexity)
+- Budget constraints
+- Preventing runaway costs on open-ended tasks
+
+### Model Selection (80% Cost Savings)
+
+```yaml
+# ralph.yml
+cli:
+  backend: "kiro"        # $0.02-0.03 per iteration (recommended)
+  # backend: "opencode"  # Free (with Zen models)
+  # backend: "claude"    # $0.12-0.18 per iteration (highest quality)
+```
+
+**Strategy:** Use cheaper models for iteration, expensive models for final validation.
+
+**Example workflow:**
+```bash
+# Iterate with Kiro (cheap, fast)
+ralph run --config ralph.yml  # Uses kiro
+
+# Final validation with Claude (expensive, thorough)
+sed -i 's/kiro/claude/' ralph.yml
+ralph run --max-iterations 5  # Only final validation passes
+```
+
+### Iteration Caps (Scope Control)
+
+```yaml
+event_loop:
+  max_iterations: 30  # Prevent infinite loops
+```
+
+**Guideline:**
+- Simple tasks: 10-15 iterations
+- Medium tasks: 20-30 iterations
+- Complex tasks: 50-100 iterations
+
+**If hitting cap frequently:** Task is poorly scoped or impossible.
+
+### Token Tracking (Real-Time Monitoring)
+
+```bash
+ralph run --tui  # Live cost tracking
+```
+
+TUI shows:
 - Tokens consumed (current iteration + total)
-- Cost so far / limit
-- Projected final cost
+- Cost so far / spending limit
+- Projected final cost based on iteration trend
+- Cache hit rate (for providers supporting prompt caching)
+
+**Early warning:** If cost/iteration increases over time, context window filling up (reduce max_iterations).
+
+### Cost Comparison: Model Selection Impact
+
+| Task | Kiro | Claude Sonnet | Savings |
+|------|------|---------------|---------|
+| Simple (3 iterations) | $0.06 | $0.30 | 80% |
+| Medium (12 iterations) | $0.30 | $1.80 | 83% |
+| Complex (50 iterations) | $1.50 | $9.00 | 83% |
+
+See [references/examples.md](references/examples.md) for detailed cost breakdowns.
+
+## Coding Plan Best Practices
+
+Effective planning reduces iteration count by 30-50%. Five key practices:
+
+**1. Write specific, testable acceptance criteria**
+```markdown
+✗ Bad: "Add user authentication"
+✓ Good: "POST /auth/login endpoint returns JWT (24-hour expiry) on success, 401 on invalid credentials, 429 after 5 attempts per IP per 15 min. Tests verify all edge cases. Manual test: [curl command]"
+```
+Impact: 3-5 fewer iterations
+
+**2. Specify what NOT to build (YAGNI)**
+```markdown
+Features to include: Add/remove/update cart items
+DO NOT implement: Saved carts, cart sharing, wish lists
+```
+Impact: Prevents speculative features Validator will reject
+
+**3. Reference existing patterns**
+```markdown
+Follow patterns from: auth.ts (middleware), users/controller.ts (errors), utils/validate.ts (validation)
+```
+Impact: Builder writes idiomatic code faster
+
+**4. Provide E2E test scenarios**
+```markdown
+Manual tests: 1) 5 requests from IP A succeed, 2) 6th returns 429, 3) Request from IP B succeeds (independent limit)
+```
+Impact: Validator knows exactly what to verify
+
+**5. Break down complex tasks (use PDD)**
+
+For tasks >30 iterations, use `pdd-to-code-assist` preset to auto-generate task breakdown.
+
+**Cost impact:**
+- Vague prompt: 15-20 iterations, $2.25-3.00 (Claude) or $0.45-0.60 (Kiro)
+- Specific criteria: 10-12 iterations, $1.50-1.80 (Claude) or $0.30-0.36 (Kiro)
+- **Best ROI:** 5 min planning saves $0.75-1.50 per task
+
+See [references/cost-and-planning.md](references/cost-and-planning.md) for detailed examples.
+
+## Key Features
 
 ### Git Checkpointing
 
@@ -211,10 +355,13 @@ Remote monitoring with `/status`, `/tasks`, `/restart` commands.
 | Single feature needs iteration-to-perfection | Multi-step workflow (N independent tasks) |
 | TDD workflow critical (RED → GREEN → REFACTOR) | Each task usually succeeds first try |
 | External verification gates needed | Manual verification acceptable |
-| Cost tracking important (spending limits) | OpenClaw session tracking sufficient |
+| **Cost control critical** (spending limits, model selection) | OpenClaw session tracking sufficient |
 | Task may need 5-15 iterations to get right | Task complexity well-understood upfront |
+| **Want to minimize cost** (use Kiro, set limits) | Cost not a primary concern |
 
-**Recommendation:** Use ralph for complex features where quality gates are critical. Use OpenClaw sub-agents for multi-task workflows where each task is independent.
+**Recommendation:** Use ralph for complex features where quality gates or cost control are critical. Use OpenClaw sub-agents for multi-task workflows where each task is independent.
+
+**Cost consideration:** Ralph with Kiro costs ~83% less than OpenClaw with Claude for equivalent work. Use ralph + spending limits for budget-constrained projects.
 
 ## Configuration
 
@@ -312,6 +459,24 @@ ralph run --tui --max-iterations 100 --max-runtime-seconds 14400
 **Cost:** ~$4.50-9.00
 
 See [references/examples.md](references/examples.md) for detailed workflow breakdowns.
+
+## Cost Control + Planning: Combined Strategy
+
+**Maximum savings (70-87%)** come from combining model selection with effective planning.
+
+**Quick wins:**
+1. Use Kiro instead of Claude (80% cheaper)
+2. Write specific acceptance criteria (3-5 fewer iterations)
+3. Set spending limits to prevent runaway costs
+
+**Strategy matrix:**
+- **Simple tasks:** Kiro + 2 min planning → $0.03-0.06
+- **Medium tasks:** Kiro + 5 min planning → $0.20-0.36 (vs. $2.70 default)
+- **Complex tasks:** Kiro + 10 min PDD → $1.50-3.00 (vs. $9.00+ default)
+
+**Rule of thumb:** Spend 10% of estimated cost on planning. $1 task → 6 min planning. $10 task → 1 hour planning.
+
+See [references/cost-and-planning.md](references/cost-and-planning.md) for detailed strategies, ROI calculations, and real-world examples.
 
 ## Advanced Usage
 
