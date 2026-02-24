@@ -1,6 +1,6 @@
 ---
 name: ralph-orchestrator
-description: Autonomous programming task execution with cost control and quality gates. Kicks off TDD implementation, bug fixes, feature development, and refactoring using event-driven loop system with multi-hat coordination and external verification (tests/linters/type checks). Includes spending limits, model selection (Kiro 83% cheaper than Claude), iteration caps, and real-time cost tracking. Use when you need: (1) Cost-controlled iteration-to-perfection (set spending limits, use cheaper models), (2) Complex features with TDD workflow (RED → GREEN → REFACTOR), (3) Bug fixes with reproduction and verification, (4) Spec-driven development from PDD output, (5) Tasks where external verification gates critical. Best practices: write specific acceptance criteria (reduces iterations), use PDD for complex tasks (better scoping), specify what NOT to build (YAGNI). NOT for simple one-liner fixes, exploratory code reading, or tasks requiring human judgment at each step.
+description: Autonomous programming task execution with CLI agent rotation and quality gates. Kicks off TDD implementation, bug fixes, feature development, and refactoring using event-driven loop system with multi-hat coordination and external verification (tests/linters/type checks). Supports multiple CLI agents (Claude Code, GitHub Copilot, OpenCode Zen, Gemini CLI) with automatic rotation for quota management and getting unstuck. Use when you need: (1) Quota-managed iteration-to-perfection (rotate agents, never hit limits), (2) Complex features with TDD workflow (RED → GREEN → REFACTOR), (3) Getting unstuck (switch agents when stuck 3+ iterations), (4) Bug fixes with reproduction and verification, (5) Spec-driven development from PDD output. Best practices: maintain 2+ agent subscriptions (quota resilience), write specific acceptance criteria (reduces iterations), use coding-plan-first preference (primary agent for quality, secondary for TDD), rotate agents when stuck (fresh perspective), use PDD for complex tasks (better scoping). NOT for simple one-liner fixes, exploratory code reading, or tasks requiring human judgment at each step.
 metadata:
   version: 1.0.0
   author: Connectotron
@@ -44,15 +44,13 @@ ralph --version
 
 ## Quick Start
 
-### Simple Task (Cost-Conscious)
+### Simple Task (Quota-Conscious)
 
 ```bash
 cd ~/my-project
 ralph init --preset code-assist
 
-# Edit ralph.yml to use cheaper model
-sed -i 's/backend: "kiro"/backend: "kiro"/' ralph.yml  # Already default
-
+# Use primary agent from your plan
 cat > PROMPT.md << 'EOF'
 Add a --verbose flag to the CLI that enables debug logging
 
@@ -64,22 +62,24 @@ Acceptance criteria:
 - Manual test: ./cli --verbose command shows debug output
 EOF
 
-ralph run --max-spend 0.50  # Hard cap at $0.50
+ralph run --backend copilot --max-iterations 10
 ```
 
-**Expected:** 2-3 iterations, ~$0.03-0.06 with Kiro (vs. $0.15-0.30 with Claude)
+**Expected:** 2-3 iterations
 
-**Cost control applied:**
-- Cheaper model (Kiro)
-- Spending limit ($0.50)
+**Quota management applied:**
+- Use secondary agent (Copilot) to save primary (Claude) for complex tasks
 - Clear acceptance criteria (reduces iterations)
+- Iteration cap prevents runaway usage
 
-### Complex Feature with TDD (Balanced Cost + Quality)
+**If quota exceeded:** Switch to another agent (`--backend claude` or `--backend gemini`)
+
+### Complex Feature with TDD (Agent Rotation)
 
 ```bash
 ralph init --preset code-assist
 
-# Iterate with Kiro (cheap)
+# Use primary agent (best quality)
 cat > PROMPT.md << 'EOF'
 Implement user authentication:
 - Email/password login endpoint POST /auth/login
@@ -104,26 +104,31 @@ DO NOT implement:
 - Email verification (separate task)
 EOF
 
-ralph run --tui --max-iterations 30 --max-spend 2.00
+ralph run --backend claude --tui --max-iterations 30
 ```
 
-**Expected:** 8-12 iterations, ~$0.20-0.36 with Kiro (vs. $1.20-1.80 with Claude)
+**Expected:** 8-12 iterations
 
-**Cost control + planning applied:**
-- Kiro model (80% savings)
-- Spending limit ($2.00)
-- Iteration cap (30)
+**Quota management + planning applied:**
+- Claude agent (best quality, use for important features)
+- Iteration cap (30) prevents runaway usage
 - Specific acceptance criteria with E2E scenarios
 - Clear YAGNI guidance (what NOT to build)
 - Manual test scenarios for Validator
 
-**Optional final validation with Claude:**
+**If Claude quota running low, use agent rotation:**
 ```bash
-sed -i 's/kiro/claude/' ralph.yml
-ralph run --max-iterations 5  # Quick quality check
+# Start with secondary agent
+ralph run --backend copilot --max-iterations 20
+
+# If stuck, escalate to Claude for breakthrough
+ralph run --backend claude --max-iterations 10
+
+# Resume with Copilot after breakthrough
+ralph run --backend copilot --max-iterations 10
 ```
 
-**Total cost:** $0.36 (Kiro) + $0.75 (Claude final) = **$1.11** (vs. $1.80 all-Claude)
+**Quota savings:** Rotating agents spreads load across multiple quotas, maximizing availability.
 
 ### From PDD Output (Spec-Driven)
 
@@ -208,57 +213,61 @@ ralph run --max-spend 10.00 --max-iterations 50  # Combined limits
 - Budget constraints
 - Preventing runaway costs on open-ended tasks
 
-### Model Selection (80% Cost Savings)
+### CLI Agent Rotation (Quota Management + Getting Unstuck)
 
 ```yaml
 # ralph.yml
 cli:
-  backend: "kiro"        # $0.02-0.03 per iteration (recommended)
-  # backend: "opencode"  # Free (with Zen models)
-  # backend: "claude"    # $0.12-0.18 per iteration (highest quality)
+  backend: "claude"      # Claude Code (included in Pro plan)
+  # backend: "copilot"   # GitHub Copilot (Pro plan)
+  # backend: "opencode"  # OpenCode Zen (curated models)
+  # backend: "gemini"    # Gemini CLI (free tier available)
 ```
 
-**Strategy:** Use cheaper models for iteration, expensive models for final validation or when stuck.
+**Strategy:** Rotate across multiple CLI agents to manage quotas and break through when stuck.
 
-**Standard workflow:**
+**Coding-plan-first workflow:**
 ```bash
-# Iterate with Kiro (cheap, fast)
-ralph run --config ralph.yml --max-iterations 15
+# Primary agent (best quality, generous quota)
+ralph run --backend claude --max-iterations 15
 
-# Final validation with Claude (expensive, thorough)
-sed -i 's/kiro/claude/' ralph.yml
-ralph run --max-iterations 5  # Only final validation passes
+# If quota hit, switch to secondary agent
+ralph run --backend copilot --max-iterations 15
+
+# Free tier overflow if both at quota
+ralph run --backend gemini --max-iterations 15
 ```
 
-**Escalation strategy (when stuck):**
+**Benefits:**
+1. **Quota resilience:** Multiple agents = never blocked by single quota limit
+2. **Getting unstuck:** Different agent brings fresh perspective
+3. **Agent strengths:** Match task type to best agent
 
-If Kiro fails to converge after 10-15 iterations (validation keeps rejecting):
+**Getting unstuck (escalation):**
+
+If agent stuck after 10-15 iterations (validation keeps rejecting):
 
 ```bash
-# Stop the loop (Ctrl+C if running)
-# Check iteration count in TUI or logs
+# Watch for stuck signals:
+# - Same validation error 3+ times
+# - No validation passes after 10-15 iterations
 
-# If stuck after 10-15 iterations, escalate to Claude
-sed -i 's/kiro/claude/' ralph.yml
-ralph run --max-iterations 10  # Claude breaks through
+# Switch to different agent (fresh model perspective)
+ralph run --backend claude --max-iterations 10  # Breaks through differently
 
-# Resume with Kiro after breakthrough
-sed -i 's/claude/kiro/' ralph.yml
-ralph run --max-iterations 15
+# Resume with original agent after breakthrough
+ralph run --backend copilot --max-iterations 10
 ```
 
-**When to escalate:**
-- Same validation error 3+ times in a row
-- Iteration count >15 with no validation passes
-- Task complexity higher than expected
-- Kiro missing subtle requirements
+**Agent quotas (typical):**
+- **Claude Code:** ~350 requests/12h (Claude Pro $20/mo)
+- **GitHub Copilot:** 300 premium requests/month (Copilot Pro $10/mo)
+- **OpenCode Zen:** Varies by plan (~$20/mo)
+- **Gemini CLI:** Free tier available
 
-**Cost impact:**
-- Kiro only: 20 iterations × $0.03 = $0.60 (may not converge)
-- Escalation: 15 Kiro + 5 Claude + 5 Kiro = $0.45 + $0.75 + $0.15 = **$1.35** (converges)
-- Claude only: 15 iterations × $0.15 = $2.25
+**Recommended setup:** 2+ agents for quota overflow + getting unstuck capability.
 
-**Best of both:** Start cheap, escalate when stuck, finish cheap.
+See [references/cli-agent-rotation.md](references/cli-agent-rotation.md) for detailed rotation strategies.
 
 ### Iteration Caps (Scope Control)
 
@@ -288,15 +297,16 @@ TUI shows:
 
 **Early warning:** If cost/iteration increases over time, context window filling up (reduce max_iterations).
 
-### Cost Comparison: Model Selection Impact
+### Agent Rotation Benefits
 
-| Task | Kiro | Claude Sonnet | Savings |
-|------|------|---------------|---------|
-| Simple (3 iterations) | $0.06 | $0.30 | 80% |
-| Medium (12 iterations) | $0.30 | $1.80 | 83% |
-| Complex (50 iterations) | $1.50 | $9.00 | 83% |
+| Benefit | Impact |
+|---------|--------|
+| **Quota resilience** | Multiple agents = never blocked by single quota |
+| **Getting unstuck** | Different agent = fresh perspective on stuck tasks |
+| **Agent strengths** | Match task type to best agent (Claude for complex, Copilot for TDD) |
+| **Cost distribution** | Spread usage across multiple all-inclusive plans |
 
-See [references/examples.md](references/examples.md) for detailed cost breakdowns.
+See [references/cli-agent-rotation.md](references/cli-agent-rotation.md) for detailed rotation strategies.
 
 ## Coding Plan Best Practices
 
@@ -385,13 +395,13 @@ Remote monitoring with `/status`, `/tasks`, `/restart` commands.
 | Single feature needs iteration-to-perfection | Multi-step workflow (N independent tasks) |
 | TDD workflow critical (RED → GREEN → REFACTOR) | Each task usually succeeds first try |
 | External verification gates needed | Manual verification acceptable |
-| **Cost control critical** (spending limits, model selection) | OpenClaw session tracking sufficient |
+| **Quota management critical** (rotate agents, never blocked) | Single agent sufficient |
 | Task may need 5-15 iterations to get right | Task complexity well-understood upfront |
-| **Want to minimize cost** (use Kiro, set limits) | Cost not a primary concern |
+| **Getting unstuck important** (switch agents for fresh perspective) | Agent rarely gets stuck |
 
-**Recommendation:** Use ralph for complex features where quality gates or cost control are critical. Use OpenClaw sub-agents for multi-task workflows where each task is independent.
+**Recommendation:** Use ralph for complex features where quality gates or quota management are critical. Use OpenClaw sub-agents for multi-task workflows where each task is independent.
 
-**Cost consideration:** Ralph with Kiro costs ~83% less than OpenClaw with Claude for equivalent work. Use ralph + spending limits for budget-constrained projects.
+**Quota consideration:** Ralph with agent rotation spreads load across multiple quotas, maximizing availability and resilience. Use ralph with 2+ agents for production work.
 
 ## Configuration
 
@@ -490,23 +500,28 @@ ralph run --tui --max-iterations 100 --max-runtime-seconds 14400
 
 See [references/examples.md](references/examples.md) for detailed workflow breakdowns.
 
-## Cost Control + Planning: Combined Strategy
+## Quota Management + Planning: Combined Strategy
 
-**Maximum savings (70-87%)** come from combining model selection with effective planning.
+**Maximum efficiency** comes from combining agent rotation with effective planning.
 
 **Quick wins:**
-1. Use Kiro instead of Claude (80% cheaper)
-2. Write specific acceptance criteria (3-5 fewer iterations)
-3. Set spending limits to prevent runaway costs
+1. Rotate across 2+ CLI agents (quota resilience)
+2. Write specific acceptance criteria (3-5 fewer iterations = less quota usage)
+3. Set iteration caps to prevent quota exhaustion
 
 **Strategy matrix:**
-- **Simple tasks:** Kiro + 2 min planning → $0.03-0.06
-- **Medium tasks:** Kiro + 5 min planning → $0.20-0.36 (vs. $2.70 default)
-- **Complex tasks:** Kiro + 10 min PDD → $1.50-3.00 (vs. $9.00+ default)
+- **Simple tasks:** Secondary agent (Copilot) + 2 min planning → 2-3 iterations
+- **Medium tasks:** Primary agent (Claude) + 5 min planning → 8-12 iterations
+- **Complex tasks:** Agent rotation + 10 min PDD → 30-50 iterations (spread across quotas)
 
-**Rule of thumb:** Spend 10% of estimated cost on planning. $1 task → 6 min planning. $10 task → 1 hour planning.
+**Recommended agent setup:**
+- **Primary (best quality):** Claude Code or OpenCode Zen
+- **Secondary (fast TDD):** GitHub Copilot
+- **Tertiary (free overflow):** Gemini CLI
 
-See [references/cost-and-planning.md](references/cost-and-planning.md) for detailed strategies, ROI calculations, and real-world examples.
+**Rule of thumb:** Use secondary agent by default, escalate to primary when stuck or for critical tasks.
+
+See [references/cli-agent-rotation.md](references/cli-agent-rotation.md) for detailed rotation strategies and [references/cost-and-planning.md](references/cost-and-planning.md) for planning best practices.
 
 ## Advanced Usage
 
