@@ -1,0 +1,101 @@
+name: Release
+
+concurrency: deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: 'Skill name to publish (e.g., skill-evaluator)'
+        required: true
+        type: string
+      version:
+        description: 'Version override (optional, auto-increments if not set)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release.outputs.created }}
+      tag: ${{ steps.release.outputs.incremented-version }}
+      skill: ${{ steps.extract-skill.outputs.skill }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog
+
+      - name: Run ReleaseMe
+        id: release
+        uses: dev-build-deploy/release-me@v0
+        with:
+          token: ${{ github.token }}
+          prefix: v
+          versioning: semver
+          config: .github/release.yml
+          version: ${{ inputs.version }}
+
+      - name: Extract skill from changelog
+        id: extract-skill
+        if: steps.release.outputs.created == 'true'
+        run: |
+          # Default to skill-evaluator for now (can be enhanced later)
+          SKILL="${{ inputs.skill || 'skill-evaluator' }}"
+          echo "skill=$SKILL" >> $GITHUB_OUTPUT
+          echo "Publishing skill: $SKILL"
+
+      - name: Release summary
+        if: steps.release.outputs.created == 'true'
+        run: |
+          echo "✅ GitHub Release created: ${{ steps.release.outputs.incremented-version }}"
+          echo "📦 Will publish to ClawHub: ${{ steps.extract-skill.outputs.skill }}"
+
+  publish-clawhub:
+    name: Publish to ClawHub
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clawhub CLI
+        run: npm install -g clawhub
+
+      - name: Authenticate to ClawHub
+        run: clawhub auth login --no-browser --token "${{ secrets.CLAWHUB_TOKEN }}"
+
+      - name: Publish to ClawHub
+        run: |
+          SKILL="${{ needs.release.outputs.skill }}"
+          VERSION="${{ needs.release.outputs.tag }}"
+          
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          
+          echo "Publishing: skills/$SKILL @ $VERSION"
+          
+          clawhub publish "skills/$SKILL" \
+            --slug "$SKILL" \
+            --version "$VERSION"
+
+      - name: Verify publication
+        run: |
+          echo "✅ Published to ClawHub: ${{ needs.release.outputs.skill }} @ ${{ needs.release.outputs.tag }}"
+          clawhub auth whoami
