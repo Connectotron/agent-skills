@@ -313,6 +313,188 @@ git show ralph-checkpoint-iter-5
 
 ---
 
+## Git Workflow Issues (GitHub/GitLab)
+
+### CI/CD Fails After Push
+
+**Symptom:** Local tests pass, pre-commit hooks pass, but GitHub Actions / GitLab CI fails
+
+**Common causes:**
+
+**1. Environment version mismatch**
+
+Local Python 3.14, CI runs Python 3.11 → different behavior (annotation evaluation, library compatibility).
+
+**Fix:**
+```bash
+# Check version consistency
+cat .python-version           # Should match CI
+cat .github/workflows/*.yml   # Check python-version matrix
+
+# Recreate virtualenv with correct version
+pyenv install 3.14
+pyenv local 3.14
+rm -rf .venv
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Re-run tests
+pytest
+```
+
+**2. Platform-specific behavior**
+
+macOS development, Linux CI → path separators, case sensitivity, line endings differ.
+
+**Fix:**
+```bash
+# Test in Docker container matching CI
+docker run -v $(pwd):/app -w /app python:3.14 bash -c "pip install -e '.[dev]' && pytest"
+```
+
+**3. Missing environment variables**
+
+Local has secrets in `.env`, CI needs secrets configured in GitHub/GitLab.
+
+**Fix:**
+```bash
+# List required environment variables
+grep -r "os.getenv" src/
+
+# Add to GitHub Secrets: Settings → Secrets → Actions → New repository secret
+# Add to GitLab CI/CD: Settings → CI/CD → Variables → Add variable
+```
+
+**4. Dependency version mismatch**
+
+Local has cached dependencies, CI installs fresh.
+
+**Fix:**
+```bash
+# Pin versions in requirements.txt or pyproject.toml
+pip freeze > requirements.txt
+
+# Or use lock file
+poetry lock  # Poetry
+pip-compile  # pip-tools
+```
+
+### Forgot to Push Changes
+
+**Symptom:** Pull request created but changes not visible on GitHub/GitLab
+
+**Cause:** Committed locally but didn't push
+
+**Fix:**
+```bash
+git push origin feature/my-feature
+```
+
+**Prevention:** Add to acceptance criteria:
+```markdown
+- Changes committed to feature branch
+- Feature branch pushed to GitHub/GitLab  ← Forces push verification
+```
+
+### Pre-Commit Hooks Pass, CI Fails
+
+**Symptom:** Pre-commit hooks (ruff, pyright) pass locally but same checks fail in CI
+
+**Cause:** Pre-commit hooks run with local Python version; CI runs with declared version
+
+**Example:**
+```python
+# Python 3.14: deferred annotations (PEP 649) → TYPE_CHECKING imports work
+# Python 3.11: annotations evaluated immediately → NameError if not imported
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from mymodule import Config  # Only imported for type checker
+
+def process(config: Config):  # NameError in Python 3.11, fine in 3.14
+    pass
+```
+
+**Fix:**
+```python
+# Add future import for Python <3.14 compatibility
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from mymodule import Config
+
+def process(config: Config):  # Now works in both versions
+    pass
+```
+
+### Pull Request Not Created
+
+**Symptom:** Task marked complete but no PR exists
+
+**Cause:** Forgot step 3 of git workflow (create PR/MR)
+
+**Fix:**
+```bash
+# GitHub
+gh pr create --title "Feature: My feature" --body "Description"
+
+# GitLab
+glab mr create --title "Feature: My feature" --description "Description"
+```
+
+**Prevention:** Include in acceptance criteria:
+```markdown
+- Pull request / merge request created  ← Explicit requirement
+```
+
+### CI Takes Too Long
+
+**Symptom:** Waiting 5-10 minutes for CI after each push
+
+**Optimization strategies:**
+
+**1. Split test stages**
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest tests/unit  # Fast feedback (30s)
+  
+  integration:
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest tests/integration  # Slower (2-3 min)
+  
+  e2e:
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest tests/e2e  # Slowest (5-10 min)
+```
+
+**2. Parallel execution**
+```yaml
+strategy:
+  matrix:
+    python-version: ['3.14']
+    test-suite: [unit, integration, e2e]
+```
+
+**3. Caching dependencies**
+```yaml
+- uses: actions/cache@v3
+  with:
+    path: ~/.cache/pip
+    key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+```
+
+---
+
 ## Performance Issues
 
 ### Slow Iteration Times

@@ -388,6 +388,99 @@ ralph run --telegram            # Enable notifications
 
 Remote monitoring with `/status`, `/tasks`, `/restart` commands.
 
+## Git Workflow (GitHub/GitLab)
+
+When ralph operates in a repository with a GitHub or GitLab remote origin, **pushing changes and verifying CI/CD is part of task completion**. Do not consider a task complete until all three steps pass:
+
+### Required Workflow
+
+**1. Push feature branch upstream**
+
+After ralph commits changes:
+```bash
+git push origin feature/my-feature
+```
+
+**Why:** Local-only commits are invisible. GitHub/GitLab is the source of truth.
+
+**2. Verify CI/CD passes**
+
+Check that all CI/CD pipelines complete successfully:
+```bash
+# GitHub
+gh run list --branch=feature/my-feature --limit=1
+gh run watch  # Wait for completion
+
+# GitLab
+glab ci list --branch=feature/my-feature
+glab ci view <pipeline-id>
+```
+
+**If CI fails:**
+- Review error logs (`gh run view <run-id> --log-failed`)
+- Fix the issue (run ralph again with fix guidance)
+- Commit the fix
+- Push again
+- Verify CI passes
+- **Only then proceed to step 3**
+
+**Why:** CI is the final quality gate. Pre-commit hooks catch most issues but not all (version mismatches, platform-specific bugs, integration test failures).
+
+**3. Create pull request / merge request**
+
+After CI passes, open a PR/MR for code review:
+```bash
+# GitHub
+gh pr create --title "Feature: My feature" --body "Implements X, Y, Z"
+
+# GitLab
+glab mr create --title "Feature: My feature" --description "Implements X, Y, Z"
+```
+
+**Why:** Code review is essential. Ralph passes tests/lints but humans verify design, architecture, and business requirements.
+
+### Acceptance Criteria Template
+
+When writing PROMPT.md, include git workflow in acceptance criteria:
+
+```markdown
+Acceptance criteria:
+- All unit tests pass
+- All integration tests pass
+- No linter errors
+- Type checking passes
+- Manual E2E test: [scenario]
+- Changes committed to feature branch
+- Feature branch pushed to GitHub/GitLab
+- CI/CD passes on GitHub/GitLab
+- Pull request / merge request created
+```
+
+### When Git Workflow Doesn't Apply
+
+Skip git workflow if:
+- No remote origin configured (`git remote -v` shows nothing)
+- Working in scratch/experimental directory
+- Explicitly told to work locally only
+
+### Common Issues
+
+**Issue:** CI fails with errors that passed locally
+
+**Root cause:** Environment mismatch (Python version, Node version, dependencies, platform-specific behavior)
+
+**Solution:**
+1. Check `.python-version` / `.nvmrc` / equivalent version file
+2. Verify local environment matches CI environment
+3. Run tests in CI-equivalent container if available
+4. Fix issue, commit, push, verify again
+
+**Issue:** Pre-commit hooks passed but CI failed
+
+**Why:** Pre-commit hooks run with local environment; CI runs with declared environment. Version mismatches cause different behavior.
+
+**Solution:** Always verify CI passes. Pre-commit hooks are helpful but not sufficient.
+
 ## When to Use Ralph vs. OpenClaw Sub-Agents
 
 | Use Ralph When | Use OpenClaw Sub-Agents When |
@@ -468,20 +561,41 @@ ralph run
 **Iterations:** 2-3  
 **Cost:** ~$0.15-0.30
 
-### Example 2: User Authentication (TDD)
+### Example 2: User Authentication (TDD with Git Workflow)
 
 ```bash
+# Create feature branch
+git checkout -b feature/user-auth
+
 ralph init --preset code-assist
 
 cat > PROMPT.md << 'EOF'
 Implement user authentication with email/password, JWT tokens, bcrypt hashing, and rate limiting
+
+Acceptance criteria:
+- All unit tests pass
+- All integration tests pass
+- No linter errors
+- Type checking passes
+- Manual E2E test: Valid credentials return JWT, invalid return 401
+- Changes pushed to GitHub
+- CI/CD passes
+- Pull request created
 EOF
 
 ralph run --tui --max-iterations 30
+
+# After ralph completes, push and verify CI
+git push origin feature/user-auth
+gh run watch
+
+# If CI passes, create PR
+gh pr create --title "Feature: User authentication" --body "Implements email/password auth with JWT tokens"
 ```
 
 **Iterations:** 8-12  
-**Cost:** ~$1.20-1.80
+**Cost:** ~$1.20-1.80  
+**Total time:** ~15-25 minutes (including CI wait)
 
 ### Example 3: Full Idea-to-Code (PDD Pipeline)
 
